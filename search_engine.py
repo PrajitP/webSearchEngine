@@ -72,13 +72,13 @@ def index_data(inDir, outDir):
         for docLink,docData in data.items():
             # Map 'document id' to 'document link'
             docLink_to_docId_map[docId] = docLink   
-            # Index document
+            # Index document, i.e. get list of tokens in document
             tokenFreq, totalTokens = index_document(docData)
-            # Update all terms/tokens belonging to document
-            for token, freq in tokenFreq.items():
-                # Calculate 'Term Frequency', which states importance of 'Term' in 'Document'
-                tokenWeight = (1 + math.log10(freq)) if freq else 0
-                token_to_docId_map[token].append((tokenWeight, docId))
+            # Create token to document mapping
+            for token, tokenDocFreq in tokenFreq.items():
+                # Calculate 'Term/token Frequency', which states importance of 'Token' in 'Document'
+                tokenDocScore = (1 + math.log10(tokenDocFreq)) if tokenDocFreq else 0
+                token_to_docId_map[token].append((docId, tokenDocScore))
             # Increment 'document id' for next iteration
             docId += 1
     # Store the output
@@ -97,20 +97,27 @@ def get_relevant_documents(inDir, query):
     docLink_to_docId_map = loadStructure(os.path.join(inDir, 'docLink_to_docId_map'))
     tokenFreq, totalTokens = index_string(query)
     documentRanks = {}
-    # Get documents score for all relevant tokens in search query
-    for token, freq in tokenFreq.items():
+    # Get scores for all relevant documents using relevant tokens from search query
+    for token, tokenDocFreq in tokenFreq.items():
         documentsForToken = token_to_docId_map[token]
-        for (score, documentId) in documentsForToken:
-            if documentId in documentRanks:
-                documentRanks[documentId] += score
+        for (docId, tokenDocScore) in documentsForToken:
+            # Calculate tf-idf score, properties of this score are:
+            # - Increases with number of occurrences with in a document
+            # - Increases with rarity of term across documents
+            tokenDocCount = len(documentsForToken)  # Number of documents in which token exists
+            totalDocCount = totalDocuments          # Total number of documents
+            tfIdfScore = tokenDocScore * math.log10(totalDocCount/tokenDocCount)
+            if docId in documentRanks:
+                documentRanks[docId] += tfIdfScore
             else:
-                documentRanks[documentId] = score
+                documentRanks[docId] = tfIdfScore
     # Sort the documents by score
     sortedDocumentRanks = sorted(documentRanks, key=documentRanks.get, reverse=True)
     # Get top 5 document links
     finalDocumentList = []
-    for documentId in sortedDocumentRanks[:5]:
-        finalDocumentList.append(docLink_to_docId_map[documentId])
+    for docId in sortedDocumentRanks[:5]:
+        finalDocumentList.append(docLink_to_docId_map[docId])
+    # Return top 5 document links
     return finalDocumentList
 
 # Get the data
@@ -127,6 +134,7 @@ if not os.path.exists(indexOutdir):
 else:
     print("Index already available at: " + indexOutdir)
 
+totalDocuments = 100
 documents = get_relevant_documents(indexOutdir, 'what is sql')
 for document in documents:
     print(document)
