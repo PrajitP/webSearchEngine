@@ -25,16 +25,9 @@ def dumpStructure(fileName, content):
 
 stemmer = PorterStemmer()
 stop_words = set(stopwords.words('english'))
-def index_document(document):
-    # Create BeautifulSoup object from html text, and ignore/remove the non-ASCII 
-    soup = BeautifulSoup(document.encode("ascii", errors='ignore'), 'html.parser')
-    # Remove non-visible tags [Reference: https://stackoverflow.com/questions/1936466/beautifulsoup-grab-visible-webpage-text]
-    [tag.extract() for tag in soup(['style', 'script', '[document]', 'head', 'title'])]
-    # Get visible text from html document
-    visible_text = soup.getText()
+def index_string(text):
     # Tokenize
-    tokens = nltk.word_tokenize(visible_text)
-
+    tokens = nltk.word_tokenize(text)
     # To capture occurrence of 'token/term' in a 'document'
     tokenFreq = {}
     for token in tokens:
@@ -54,6 +47,15 @@ def index_document(document):
         else:
             tokenFreq[token] = 1
     return (tokenFreq, len(tokens))
+
+def index_document(document):
+    # Create BeautifulSoup object from html text, and ignore/remove the non-ASCII 
+    soup = BeautifulSoup(document.encode("ascii", errors='ignore'), 'html.parser')
+    # Remove non-visible tags [Reference: https://stackoverflow.com/questions/1936466/beautifulsoup-grab-visible-webpage-text]
+    [tag.extract() for tag in soup(['style', 'script', '[document]', 'head', 'title'])]
+    # Get visible text from html document
+    visible_text = soup.getText()
+    return index_string(visible_text)
 
 def index_data(inDir, outDir):
     docLink_to_docId_map = {}
@@ -76,7 +78,7 @@ def index_data(inDir, outDir):
             for token, freq in tokenFreq.items():
                 # Calculate 'Term Frequency', which states importance of 'Term' in 'Document'
                 tokenWeight = (1 + math.log10(freq)) if freq else 0
-                token_to_docId_map[token].append(format(tokenWeight, '.8f') + "@" + str(docId))
+                token_to_docId_map[token].append((tokenWeight, docId))
             # Increment 'document id' for next iteration
             docId += 1
     # Store the output
@@ -84,6 +86,32 @@ def index_data(inDir, outDir):
         os.makedirs(outDir)
     dumpStructure(os.path.join(outDir, 'docLink_to_docId_map'), docLink_to_docId_map)
     dumpStructure(os.path.join(outDir, 'token_to_docId_map'), token_to_docId_map)
+
+def loadStructure(fileName):
+    with open(fileName, 'rb') as fileHandle:
+        data = pickle.load(fileHandle)
+    return data
+
+def get_relevant_documents(inDir, query):
+    token_to_docId_map = loadStructure(os.path.join(inDir, 'token_to_docId_map'))
+    docLink_to_docId_map = loadStructure(os.path.join(inDir, 'docLink_to_docId_map'))
+    tokenFreq, totalTokens = index_string(query)
+    documentRanks = {}
+    # Get documents score for all relevant tokens in search query
+    for token, freq in tokenFreq.items():
+        documentsForToken = token_to_docId_map[token]
+        for (score, documentId) in documentsForToken:
+            if documentId in documentRanks:
+                documentRanks[documentId] += score
+            else:
+                documentRanks[documentId] = score
+    # Sort the documents by score
+    sortedDocumentRanks = sorted(documentRanks, key=documentRanks.get, reverse=True)
+    # Get top 5 document links
+    finalDocumentList = []
+    for documentId in sortedDocumentRanks[:5]:
+        finalDocumentList.append(docLink_to_docId_map[documentId])
+    return finalDocumentList
 
 # Get the data
 crawlerOutdir = 'TMP/crawlOut'
@@ -94,5 +122,11 @@ else:
 
 # Index data
 indexOutdir = 'TMP/indexOut'
-index_data(crawlerOutdir, indexOutdir)
-#print(tokenIndex)
+if not os.path.exists(indexOutdir):
+    index_data(crawlerOutdir, indexOutdir)
+else:
+    print("Index already available at: " + indexOutdir)
+
+documents = get_relevant_documents(indexOutdir, 'what is sql')
+for document in documents:
+    print(document)
